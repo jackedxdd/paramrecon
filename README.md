@@ -1,30 +1,36 @@
 # paramrecon
 
-Parameter and auth endpoint recon crawler. Didesain buat Termux, jalan juga di Linux/macOS.
+Crawler buat cari parameter dan endpoint auth. Gua bikin ini karena butuh tool recon ringan yang bisa jalan di Termux, nggak harus bawa laptop.
 
-## DIBUAT KADENA
+## Kenapa
 
-Tool recon lain kebanyakan butuh Playwright atau Chromium yang berat di HP.
-Ini cuma butuh requests + bs4. Ringan, bisa jalan di Android.
+Tool recon lain kayak katana atau gau butuh Playwright/Chromium. Di HP itu berat, makan RAM, dan sering crash. paramrecon cuma pakai requests + bs4, jalan di HP kentang juga masih sanggup.
 
-## Kemampuan
+## Bisa apa
 
-- Crawl rekursif dengan dedup by URL template
+- Crawl rekursif, dedup by URL template (jadi /news/1, /news/2, /news/3 cuma di-crawl sekali)
 - Extract query param, form input, JS endpoint
 - Parse `__NEXT_DATA__` (Next.js) dan `__NUXT__` (Nuxt)
-- Brute path common admin/login dengan soft-404 detection
-- Auth endpoint scoring 0-100
-- WAF detection (Cloudflare, Akamai, AWS, Sucuri, Fastly, Incapsula)
-- Param filtering (buang noise Cloudflare dan JS minified)
-- Param detail dengan contoh URL
-- Export JSON dan HTML
+- Brute path admin/login umum, plus deteksi soft-404 biar nggak false positive
+- Kasih score 0-100 buat endpoint auth, berdasarkan alasan yang jelas
+- Deteksi WAF: Cloudflare, Akamai, AWS, Sucuri, Fastly, Incapsula
+- Filter param sampah dari Cloudflare dan JS minified
+- Param detail, ada contoh URL-nya
+- Export JSON atau HTML
 
-## Batasan
+## Nggak bisa apa
 
-- Nggak render SPA. Cuma baca HTML awal, jadi form yang muncul setelah JS jalan kelewat
-- Belum resolve template literal JS
-- Belum test form submission otomatis
-- Belum bypass WAF
+Jujur ya, ini masih ada bolongnya:
+
+- Nggak render SPA. Cuma baca HTML awal, jadi kalau form-nya muncul setelah JS jalan, bakal kelewat. Kalau target pakai React/Vue full client-side, hasilnya bakal minim.
+- Belum bisa resolve template literal kayak `fetch('/api/${id}')`
+- Belum test form submission otomatis (belum POST dummy buat cek auth)
+- Belum bisa bypass WAF. Kalau Cloudflare nge-block, ya udah.
 
 ## Install
 
+```bash
+pkg install python -y
+pip install requests beautifulsoup4 colorama
+git clone https://github.com/jackedxdd/paramrecon
+cd paramrecon
