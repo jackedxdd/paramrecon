@@ -1,34 +1,33 @@
 # paramrecon
 
-Crawler buat nyari parameter web dan endpoint auth.
+Web crawler untuk ekstraksi parameter dan pemetaan endpoint autentikasi. Dirancang khusus agar berjalan ringan secara native di Termux (Android).
 
-## dibuat karena 
+## Latar Belakang
 
-Kita tau lah ya, tool recon kaya katana atau gau itu mantap, tapi butuh Playwright/Chromium. Coba jalanin itu di HP atau Termux, dijamin RAM langsung jebol dan crash. 
+Sebagian besar tool recon modern (seperti katana atau gau) sangat bergantung pada Playwright atau Chromium. Hal ini membuatnya terlalu berat untuk dijalankan di lingkungan mobile. 
 
-Nah, `paramrecon` ini cuma pakai `requests` sama `bs4`. Ringan banget, jalan di HP kentang juga aman. Cocok buat kalian yang suka iseng mapping target langsung dari Android.
+`paramrecon` dibangun murni menggunakan `requests` dan `beautifulsoup4`. Tanpa browser headless, tanpa konsumsi RAM besar. Cocok untuk operasi recon cepat langsung dari perangkat Android.
 
-## Bisa apa aja?
+## Fitur Utama
 
-- Crawl website rekursif, plus pinter banget buat dedup URL template (jadi `/news/1`, `/news/2`, `/news/3` cuma di-crawl sekali, hemat kuota).
-- Ekstrak query parameter, form input, dan endpoint JS.
-- Bisa baca `__NEXT_DATA__` (Next.js) sama `__NUXT__` (Nuxt).
-- Brute path admin/login umum, lengkap sama deteksi soft-404 biar nggak dapet false positive.
-- Kasih skor 0-100 buat endpoint login, jadi lu tau mana yang paling worth buat di-explore.
-- Deteksi WAF (Cloudflare, Akamai, AWS, dll) biar lu tau kalau targetnya lagi nge-block lu.
-- Buang parameter sampah dari Cloudflare sama JS minified.
-- Tampilin contoh URL biar lu nggak bingung parameternya dari mana.
-- Export hasil ke format JSON atau HTML.
+- Crawling rekursif dengan deduplikasi berbasis URL template (contoh: `/news/1` dan `/news/2` hanya akan di-crawl sekali).
+- Ekstraksi query parameter, form input, dan endpoint dari file JavaScript.
+- Dukungan parser untuk `__NEXT_DATA__` (Next.js) dan `__NUXT__` (Nuxt).
+- Brute-force path admin/login umum, dilengkapi deteksi soft-404 untuk meminimalisir false positive.
+- Skoring endpoint autentikasi (0-100) berdasarkan indikator keamanan.
+- Deteksi WAF (Cloudflare, Akamai, AWS, Sucuri, dll).
+- Filter noise untuk parameter dari Cloudflare dan JS minified.
+- Ekspor hasil dalam format JSON atau HTML.
 
-## Nggak bisa apa (Jujur)
+## Keterbatasan (Baca Sebelum Pakai)
 
-Biar nggak berharap terlalu tinggi, ini kekurangannya:
-- **Nggak bisa render SPA.** Tool ini cuma baca HTML awal. Kalau targetnya pakai React/Vue yang form loginnya baru muncul setelah JS jalan, bakal kelewat.
-- Belum bisa resolve template literal kaya `fetch('/api/${id}')`.
-- Belum bisa nge-POST data dummy buat ngetes form secara otomatis.
-- Kalau Cloudflare nge-block mentah-mentah, ya gw nyerah (belum bisa bypass).
+Tool ini tidak sempurna. Batasan utamanya:
+- **Tidak merender SPA.** Hanya membaca HTML awal. Jika form login baru muncul setelah JavaScript berjalan (client-side rendering), form tersebut tidak akan terdeteksi.
+- Belum bisa me-resolve template literal JavaScript (seperti `fetch('/api/${id}')`).
+- Belum melakukan pengujian submit form secara otomatis.
+- Tidak memiliki fitur bypass WAF. Jika diblokir oleh Cloudflare, tool ini tidak akan bisa menembus.
 
-## Cara Install
+## Instalasi
 
 ```bash
 pkg install python -y
