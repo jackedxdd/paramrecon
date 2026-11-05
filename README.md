@@ -1,12 +1,12 @@
 # paramrecon
 
-Crawler buat nyari parameter web dan endpoint auth. Gw bikin ini karena sering banget butuh tool recon pas lagi di luar, tapi males bawa laptop. 
+Crawler buat nyari parameter web dan endpoint auth.
 
-## Kenapa gw bikin ini?
+## dibuat karena 
 
 Kita tau lah ya, tool recon kaya katana atau gau itu mantap, tapi butuh Playwright/Chromium. Coba jalanin itu di HP atau Termux, dijamin RAM langsung jebol dan crash. 
 
-Nah, `paramrecon` ini cuma pakai `requests` sama `bs4`. Ringan banget, jalan di HP kentang juga aman. Cocok buat lu yang suka iseng mapping target langsung dari Android.
+Nah, `paramrecon` ini cuma pakai `requests` sama `bs4`. Ringan banget, jalan di HP kentang juga aman. Cocok buat kalian yang suka iseng mapping target langsung dari Android.
 
 ## Bisa apa aja?
 
