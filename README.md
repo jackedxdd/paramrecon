@@ -1,33 +1,34 @@
 # paramrecon
 
-Crawler buat cari parameter dan endpoint auth. Gua bikin ini karena butuh tool recon ringan yang bisa jalan di Termux, nggak harus bawa laptop.
+Crawler buat nyari parameter web dan endpoint auth. Gw bikin ini karena sering banget butuh tool recon pas lagi di luar, tapi males bawa laptop. 
 
-## Kenapa
+## Kenapa gw bikin ini?
 
-Tool recon lain kayak katana atau gau butuh Playwright/Chromium. Di HP itu berat, makan RAM, dan sering crash. paramrecon cuma pakai requests + bs4, jalan di HP kentang juga masih sanggup.
+Kita tau lah ya, tool recon kaya katana atau gau itu mantap, tapi butuh Playwright/Chromium. Coba jalanin itu di HP atau Termux, dijamin RAM langsung jebol dan crash. 
 
-## Bisa apa
+Nah, `paramrecon` ini cuma pakai `requests` sama `bs4`. Ringan banget, jalan di HP kentang juga aman. Cocok buat lu yang suka iseng mapping target langsung dari Android.
 
-- Crawl rekursif, dedup by URL template (jadi /news/1, /news/2, /news/3 cuma di-crawl sekali)
-- Extract query param, form input, JS endpoint
-- Parse `__NEXT_DATA__` (Next.js) dan `__NUXT__` (Nuxt)
-- Brute path admin/login umum, plus deteksi soft-404 biar nggak false positive
-- Kasih score 0-100 buat endpoint auth, berdasarkan alasan yang jelas
-- Deteksi WAF: Cloudflare, Akamai, AWS, Sucuri, Fastly, Incapsula
-- Filter param sampah dari Cloudflare dan JS minified
-- Param detail, ada contoh URL-nya
-- Export JSON atau HTML
+## Bisa apa aja?
 
-## Nggak bisa apa
+- Crawl website rekursif, plus pinter banget buat dedup URL template (jadi `/news/1`, `/news/2`, `/news/3` cuma di-crawl sekali, hemat kuota).
+- Ekstrak query parameter, form input, dan endpoint JS.
+- Bisa baca `__NEXT_DATA__` (Next.js) sama `__NUXT__` (Nuxt).
+- Brute path admin/login umum, lengkap sama deteksi soft-404 biar nggak dapet false positive.
+- Kasih skor 0-100 buat endpoint login, jadi lu tau mana yang paling worth buat di-explore.
+- Deteksi WAF (Cloudflare, Akamai, AWS, dll) biar lu tau kalau targetnya lagi nge-block lu.
+- Buang parameter sampah dari Cloudflare sama JS minified.
+- Tampilin contoh URL biar lu nggak bingung parameternya dari mana.
+- Export hasil ke format JSON atau HTML.
 
-Jujur ya, ini masih ada bolongnya:
+## Nggak bisa apa (Jujur)
 
-- Nggak render SPA. Cuma baca HTML awal, jadi kalau form-nya muncul setelah JS jalan, bakal kelewat. Kalau target pakai React/Vue full client-side, hasilnya bakal minim.
-- Belum bisa resolve template literal kayak `fetch('/api/${id}')`
-- Belum test form submission otomatis (belum POST dummy buat cek auth)
-- Belum bisa bypass WAF. Kalau Cloudflare nge-block, ya udah.
+Biar nggak berharap terlalu tinggi, ini kekurangannya:
+- **Nggak bisa render SPA.** Tool ini cuma baca HTML awal. Kalau targetnya pakai React/Vue yang form loginnya baru muncul setelah JS jalan, bakal kelewat.
+- Belum bisa resolve template literal kaya `fetch('/api/${id}')`.
+- Belum bisa nge-POST data dummy buat ngetes form secara otomatis.
+- Kalau Cloudflare nge-block mentah-mentah, ya gw nyerah (belum bisa bypass).
 
-## Install
+## Cara Install
 
 ```bash
 pkg install python -y
