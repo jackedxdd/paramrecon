@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*.json
+report*.html
+*.bak
+*.rusak*
+*.v2.2-clean
