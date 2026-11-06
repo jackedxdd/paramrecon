@@ -1,29 +1,25 @@
 # paramrecon
 
-Web crawler untuk ekstraksi parameter dan pemetaan endpoint autentikasi. Dirancang khusus agar berjalan ringan secara native di Termux (Android) tanpa butuh Chromium atau Playwright.
+Web crawler dan *active parameter discovery* untuk ekstraksi endpoint autentikasi. Dirancang khusus agar berjalan ringan secara native di Termux (Android) tanpa butuh browser headless (Chromium/Playwright).
 
 ## Latar Belakang
 
-Sebagian besar tool recon modern (seperti katana atau gau) sangat bergantung pada browser headless. Hal ini membuatnya terlalu berat untuk dijalankan di lingkungan mobile. 
+Sebagian besar tool recon modern terlalu berat untuk dijalankan di lingkungan mobile. `paramrecon` dibangun murni menggunakan `requests` dan `beautifulsoup4`. Tanpa konsumsi RAM besar, cocok untuk operasi pemetaan target (recon) cepat langsung dari perangkat Android.
 
-`paramrecon` dibangun murni menggunakan `requests` dan `beautifulsoup4`. Tanpa konsumsi RAM besar, cocok untuk operasi pemetaan target (recon) cepat langsung dari perangkat Android.
+## Fitur Utama
 
-## Fitur Utama 
-
-- **URL Template Deduplication**: Mencegah pemborosan request pada URL dengan pola sama. Contoh: `/product/1` dan `/product/2` hanya akan di-crawl sekali.
+- **Active Parameter Discovery (`--hunt`)**: Menembak daftar parameter umum secara aktif ke setiap endpoint. Menggunakan teknik *chunking* (kirim banyak parameter sekaligus) dan *anomaly detection* (deteksi perubahan respons) untuk membongkar parameter tersembunyi tanpa membuat server target spamming.
+- **Deep JS & Next.js Harvester**: Mampu mengekstrak parameter atau endpoint API tersembunyi dari file JavaScript (`.js`) dan JSON internal Next.js (`__NEXT_DATA__`).
 - **Auth Endpoint Scoring**: Memberikan skor 0-100 pada kandidat form login. Tool akan memindai indikator seperti input password, method POST, dan CSRF token.
+- **URL Template Deduplication**: Mencegah pemborosan request pada URL dengan pola sama. Contoh: `/product/1` dan `/product/2` hanya akan di-crawl sekali.
 - **Soft-404 Detection**: Membedakan antara halaman 404 asli dengan halaman error yang menyamar sebagai status 200, meminimalisir hasil false positive saat brute-force.
-- **Framework State Parsing**: Mampu mengekstrak parameter atau endpoint tersembunyi dari file JSON internal Next.js (`__NEXT_DATA__`) dan Nuxt (`__NUXT__`).
 - **WAF Fingerprinting**: Mendeteksi keberadaan Web Application Firewall (Cloudflare, Akamai, AWS, Sucuri, dll) langsung dari response header.
-- **Deep JS Parsing**: Mengekstrak endpoint API yang tersembunyi di dalam file JavaScript (`.js`).
 
 ## Keterbatasan 
 
-Tool ini tidak sempurna. Batasan utamanya:
-- **Tidak merender SPA.** Hanya membaca HTML awal. Jika form login baru muncul setelah JavaScript berjalan (client-side rendering), form tersebut tidak akan terdeteksi.
+- **Tidak merender SPA penuh.** Hanya membaca HTML awal dan JSON state. Jika form login baru muncul setelah JavaScript berjalan (client-side rendering murni), form tersebut tidak akan terdeteksi.
 - Belum bisa me-resolve template literal JavaScript (seperti `fetch('/api/${id}')`).
-- Belum melakukan pengujian submit form secara otomatis.
-- Tidak memiliki fitur bypass WAF.
+- Tidak memiliki fitur bypass WAF. Jika diblokir oleh Cloudflare, tool ini tidak akan bisa menembus.
 
 ## Instalasi
 
@@ -36,8 +32,6 @@ cd paramrecon
 
 Parameter CLI dan Fungsinya
 
-Berikut adalah flag yang bisa digunakan beserta fungsinya:
-
 Flag Fungsi
 -m, --max-pages Batasan maksimal halaman yang akan di-crawl (default: 200).
 -d, --depth Kedalaman crawl mengikuti link (default: 4).
@@ -47,6 +41,8 @@ Flag Fungsi
 -H, --header Menyisipkan header kustom (misal: -H "Cookie: session=123").
 --no-scan-js Mematikan fitur download dan pemindaian file JavaScript.
 --js-limit Batasan maksimal file JS yang akan diunduh dan dipindai (default: 30).
+-a, --aggressive Mode Agresif. Mengaktifkan --brute, --hunt, dan --scan-js dengan limit tinggi secara otomatis.
+--hunt Mengaktifkan mode Active Parameter Discovery (Fuzzing).
 --brute Mengaktifkan mode brute-force untuk menebak path admin/login umum.
 --brute-wordlist Menggunakan file wordlist kustom untuk brute-force path.
 -o, --output Menentukan nama file hasil scan JSON (default: recon_result.json).
@@ -61,32 +57,68 @@ Contoh Penggunaan
 python paramrecon.py https://target.com
 ```
 
-2. Crawling dengan mode Brute-Force (mencari halaman admin):
+2. Crawling dengan mode Brute-Force:
 
 ```bash
 python paramrecon.py https://target.com --brute
 ```
 
-3. Scan area tertutup (menggunakan cookie login) + brute-force:
+3. Pencarian parameter tersembunyi (Active Fuzzing):
+
+```bash
+python paramrecon.py https://target.com --hunt -m 50
+```
+
+4. Mode Agresif (Semua fitur menyala, gunakan delay agar sopan):
+
+```bash
+python paramrecon.py https://target.com -a --delay 1.0 -t 5
+```
+
+5. Scan area tertutup (menggunakan cookie login):
 
 ```bash
 python paramrecon.py https://target.com --brute -H "Cookie: session=abcd1234"
 ```
 
-4. Mode hemat kuota (tanpa download file JS, delay sopan):
+Contoh Output (Lab Lokal)
 
-```bash
-python paramrecon.py https://target.com --brute --no-scan-js --delay 0.5 -t 5
-```
+Berikut adalah contoh nyata hasil pemindaian pada lingkungan lab lokal (http://127.0.0.1:8080). 
 
-5. Ekspor hasil ke laporan HTML:
+```text
+============================================================
+  SCAN SUMMARY
+============================================================
+  Pages crawled    : 1 (1 unique)
+  Real params      : 1
+  Suspect params   : 0
+  Unique forms     : 1
+  JS endpoints     : 1
+  JS bundles       : 0
+  Sitemap URLs     : 0
+  Brute probed     : 71
+  Auth hits        : 1
+  Errors           : 0
+  Elapsed          : 0.0s
 
-```bash
-python paramrecon.py https://target.com --brute --html laporan.html
+------------------------------------------------------------
+  AUTH ENDPOINTS (1)
+------------------------------------------------------------
+   [GET] http://127.0.0.1:8080/api/v1/user (score=20)
+       inline-js-endpoint
+       variants: 1
+
+------------------------------------------------------------
+  PARAMETERS (1 real, 0 suspect)
+------------------------------------------------------------
+  real params:
+    token (2 loc) [auth]
+      http://127.0.0.1:8080/api/v1/user?token=abc
+      http://127.0.0.1:8080/search.html?q=test
 ```
 
 Etika dan Legalitas
 
-Tool ini hanya boleh digunakan pada target yang Anda miliki izin resmi untuk mengujinya ( seperti dilab pribadi )
+Tool ini hanya boleh digunakan pada target yang Anda miliki izin resmi untuk mengujinya.
 
-Melakukan pemindaian (scanning) terhadap sistem orang tanpa izin tertulis adalah tindakan ilegal dan melanggar hukum (misal: UU ITE di Indonesia)
+Melakukan pemindaian (scanning) terhadap sistem tanpa izin tertulis adalah tindakan ilegal dan melanggar hukum (misal: UU ITE di Indonesia).
