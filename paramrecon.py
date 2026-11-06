@@ -1,16 +1,16 @@
 #usr/bin/env python3
 """
-paramrecon.py v2.2 — Advanced Parameter & Auth Recon Crawler
+paramrecon.py v2.2  Advanced Parameter & Auth Recon Crawler
 Termux-friendly. Authorized testing only.
 
 Changelog v2.2:
-  + Form dedup by path+method (fix 387→1 bug)
+  + Form dedup by path+method (fix 3871 bug)
   + Param noise filter (CF, JS minified, single-char)
   + WAF detection (Cloudflare/Akamai/AWS/Sucuri/Incapsula)
   + Soft-404 baseline + content matching
   + Adaptive throttle saat 429/403
   + Param classification (real / suspect / noise)
-  + Fix http→https sync ke findings.base
+  + Fix httphttps sync ke findings.base
   + Brute grouped by status code
 """
 
@@ -29,15 +29,17 @@ from urllib.parse import (
 from xml.etree import ElementTree as ET
 
 import requests
+import param_discovery
 from bs4 import BeautifulSoup
 from colorama import Fore, Style, init
 
-# Load harvest module — patch paramrecon otomatis
+# Load harvest module  patch paramrecon otomatis
 
-init(autoreset=True)
+import sys as _sys
+init(autoreset=True, strip=not _sys.stdout.isatty())
 requests.packages.urllib3.disable_warnings()
 
-VERSION = "2.2"
+VERSION = "2.3"
 
 DEFAULT_UA = (
     "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
@@ -88,7 +90,7 @@ JS_URL_PARAM_RE = re.compile(
     r"""[?&]([A-Za-z_][A-Za-z0-9_]{0,30})=([^&\s"'`<>{}\\]*)"""
 )
 
-# WAF signatures — (header name, value pattern)
+# WAF signatures  (header name, value pattern)
 WAF_SIGNATURES = {
     "cloudflare": [
         ("server", "cloudflare"),
@@ -155,19 +157,20 @@ BANNER = r"""
 def print_banner():
     print(f"{Fore.CYAN}{BANNER}{Style.RESET_ALL}")
     print(f"{Fore.MAGENTA}  Parameter & Auth Recon Crawler  v{VERSION}{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}  Termux Edition · Authorized testing only{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}  {'─'*54}{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}  by {Fore.GREEN}jackedxd{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}  {'─'*54}{Style.RESET_ALL}")
+    print(f"{Fore.LIGHTWHITE_EX}  Termux | Authorized testing only{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}  {'-'*54}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}  by {Fore.GREEN}jackedxdd{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}  {'-'*54}{Style.RESET_ALL}")
     print()
 
-def hr(char="─", n=60, color=Fore.BLUE):
+
+def hr(char="", n=60, color=Fore.BLUE):
     print(f"{color}{char*n}{Style.RESET_ALL}")
 
 
 def conf_bar(score):
     lvl = max(0, min(10, score // 10))
-    return "█" * lvl + "░" * (10 - lvl)
+    return "" * lvl + "" * (10 - lvl)
 
 
 def conf_color(score):
@@ -175,7 +178,7 @@ def conf_color(score):
         return Fore.RED
     if score >= 30:
         return Fore.YELLOW
-    return Fore.WHITE
+    return Fore.LIGHTWHITE_EX
 
 
 def print_status(code, url, cur):
@@ -187,8 +190,8 @@ def print_status(code, url, cur):
         c = Fore.RED
     else:
         c = Fore.MAGENTA
-    print(f"  {Fore.CYAN}▸{Style.RESET_ALL} [{c}{code}{Style.RESET_ALL}] "
-          f"{Fore.WHITE}{url}{Style.RESET_ALL} "
+    print(f"  {Fore.CYAN}{Style.RESET_ALL} [{c}{code}{Style.RESET_ALL}] "
+          f"{Fore.LIGHTWHITE_EX}{url}{Style.RESET_ALL} "
           f"{Fore.BLUE}(#{cur}){Style.RESET_ALL}")
 
 
@@ -631,6 +634,34 @@ def parse_form(tag, source_url, findings):
                           method=method, source="form")
 
 
+
+def extract_deep_js(html, url):
+    import re
+    from urllib.parse import urljoin
+    params = set()
+    endpoints = set()
+    
+    # Ekstrak __NEXT_DATA__ (Harta karun Next.js)
+    next_data = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.DOTALL)
+    if next_data:
+        try:
+            data = json.loads(next_data.group(1))
+            raw_json = json.dumps(data)
+            for match in re.findall(r'"(/api/[^"]+)"', raw_json):
+                endpoints.add(urljoin(url, match))
+            for match in re.findall(r'"([a-zA-Z_]+)":', raw_json):
+                if len(match) > 3 and match not in ["data", "props", "pageProps"]:
+                    params.add(match)
+        except:
+            pass
+            
+    # Cari fetch/axios di inline script
+    for match in re.findall(r"""fetch\(['"`]([^'"`]+)['"`]""", html):
+        if "api" in match:
+            endpoints.add(urljoin(url, match))
+            
+    return list(params), list(endpoints)
+
 def parse_html(html, url, findings):
     soup = BeautifulSoup(html, "html.parser")
     links = []
@@ -705,21 +736,21 @@ def scan_js_bundle(fetcher, url, findings, base_host, max_bytes=500_000):
 def brute_paths(fetcher, base_url, findings, paths, threads=8, delay=0.0):
     base = base_url.rstrip("/")
     print(f"\n{Fore.YELLOW}[*]{Style.RESET_ALL} "
-          f"Brute-forcing {len(paths)} common paths...")
+          f"Brute-forcing {len(paths)} common paths")
 
     baseline = detect_soft_404(fetcher, base)
     findings.soft_404 = baseline
     if baseline["is_soft_404"]:
         print(f"  {Fore.RED}[!]{Style.RESET_ALL} "
-              f"Target return {baseline['junk_code']} untuk path random → "
+              f"Target return {baseline['junk_code']} untuk path random  "
               f"{Fore.RED}SOFT-404 terdeteksi{Style.RESET_ALL}")
         print(f"  {Fore.RED}[!]{Style.RESET_ALL} "
               f"Hasil brute difilter content-based")
     else:
-        print(f"  {Fore.GREEN}[✓]{Style.RESET_ALL} "
-              f"Baseline OK (junk → {baseline['junk_code']})")
+        print(f"  {Fore.GREEN}[]{Style.RESET_ALL} "
+              f"Baseline OK (junk  {baseline['junk_code']})")
 
-    hr("·", 60, Fore.YELLOW)
+    hr("", 60, Fore.YELLOW)
 
     def probe(path):
         url = base + path
@@ -772,7 +803,7 @@ def brute_paths(fetcher, base_url, findings, paths, threads=8, delay=0.0):
             elif code in (301, 302, 307, 308):
                 loc = (r.headers.get("Location") or "").lower()
                 if any(x in loc for x in ("login", "auth", "signin", "admin")):
-                    hits_by_status[code].append(url + f" → {loc[:40]}")
+                    hits_by_status[code].append(url + f"  {loc[:40]}")
                     findings.add_auth(url, f"brute-{code}-redirects-to-auth",
                                       30, source="brute")
 
@@ -784,7 +815,7 @@ def brute_paths(fetcher, base_url, findings, paths, threads=8, delay=0.0):
         c = Fore.GREEN if code == 200 else Fore.YELLOW
         print(f"\n  {c}[{code}]{Style.RESET_ALL} ({len(hits_by_status[code])} hits)")
         for u in hits_by_status[code]:
-            print(f"    {Fore.WHITE}{u}{Style.RESET_ALL}")
+            print(f"    {Fore.LIGHTWHITE_EX}{u}{Style.RESET_ALL}")
 
 
 # ---------- Base resolver ----------
@@ -812,15 +843,15 @@ def crawl(start_url, max_pages=200, depth=4, threads=10, delay=0.0,
     findings.base = start_url  # FIX: sync base
     base_host = urlparse(start_url).netloc
 
-    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Target     : {Fore.WHITE}{start_url}")
-    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Max pages  : {Fore.WHITE}{max_pages}")
-    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Depth      : {Fore.WHITE}{depth}")
-    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Threads    : {Fore.WHITE}{threads}")
-    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Delay      : {Fore.WHITE}{delay}s")
-    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Scan JS    : {Fore.WHITE}{scan_js} (limit {js_limit})")
+    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Target     : {Fore.LIGHTWHITE_EX}{start_url}")
+    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Max pages  : {Fore.LIGHTWHITE_EX}{max_pages}")
+    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Depth      : {Fore.LIGHTWHITE_EX}{depth}")
+    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Threads    : {Fore.LIGHTWHITE_EX}{threads}")
+    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Delay      : {Fore.LIGHTWHITE_EX}{delay}s")
+    print(f"{Fore.YELLOW}[*]{Style.RESET_ALL} Scan JS    : {Fore.LIGHTWHITE_EX}{scan_js} (limit {js_limit})")
     hr()
     print(f"{Fore.CYAN}  LIVE CRAWL{Style.RESET_ALL}")
-    hr("·")
+    hr("")
 
     queue = deque()
     seen = set()
@@ -886,7 +917,7 @@ def crawl(start_url, max_pages=200, depth=4, threads=10, delay=0.0,
                     r = fut.result()
                 except Exception as e:
                     findings.errors.append({"url": url, "error": str(e)[:120]})
-                    print(f"  {Fore.RED}✗ {url} — {str(e)[:60]}{Style.RESET_ALL}")
+                    print(f"  {Fore.RED} {url}  {str(e)[:60]}{Style.RESET_ALL}")
                     continue
 
                 # WAF detection (sekali aja)
@@ -896,7 +927,7 @@ def crawl(start_url, max_pages=200, depth=4, threads=10, delay=0.0,
                         findings.waf_detected = waf
                         print(f"  {Fore.RED}[!]{Style.RESET_ALL} "
                               f"WAF terdeteksi: {Fore.RED}{waf.upper()}{Style.RESET_ALL} "
-                              f"— hati-hati rate limit")
+                             f" rate limit")
                     waf_checked = True
 
                 ctype = r.headers.get("Content-Type", "").lower()
@@ -944,50 +975,49 @@ def crawl(start_url, max_pages=200, depth=4, threads=10, delay=0.0,
 def print_summary(f, elapsed):
     s = f.to_dict()["stats"]
     print()
-    hr("═", 60, Fore.MAGENTA)
+    print(f"{Fore.MAGENTA}{'=' * 60}{Style.RESET_ALL}")
     print(f"{Fore.MAGENTA}{Style.BRIGHT}  SCAN SUMMARY{Style.RESET_ALL}")
-    hr("═", 60, Fore.MAGENTA)
+    print(f"{Fore.MAGENTA}{'=' * 60}{Style.RESET_ALL}")
 
     if f.waf_detected:
-        print(f"  {Fore.RED}[!]{Style.RESET_ALL} WAF detected : "
-              f"{Fore.RED}{f.waf_detected.upper()}{Style.RESET_ALL}")
+        print(f"  {Fore.RED}[!]{Style.RESET_ALL} WAF detected : {Fore.RED}{f.waf_detected.upper()}{Style.RESET_ALL}")
 
     rows = [
         ("Pages crawled",   f'{s["pages_crawled"]} ({len(f.url_templates)} unique)', Fore.CYAN),
         ("Real params",     s["real_params"],         Fore.GREEN),
-        ("Suspect params",  s["suspect_params"],      Fore.YELLOW if s["suspect_params"] else Fore.WHITE),
+        ("Suspect params",  s["suspect_params"],      Fore.YELLOW if s["suspect_params"] else Fore.LIGHTWHITE_EX),
         ("Unique forms",    s["unique_forms"],        Fore.CYAN),
         ("JS endpoints",    s["js_endpoints"],        Fore.CYAN),
         ("JS bundles",      s["js_bundles_scanned"],  Fore.CYAN),
         ("Sitemap URLs",    s["sitemap_urls"],        Fore.CYAN),
         ("Brute probed",    s["brute_probed"],        Fore.CYAN),
-        ("Auth hits",       s["auth_hits"],           Fore.YELLOW if s["auth_hits"] else Fore.WHITE),
-        ("Errors",          s["errors"],              Fore.RED if s["errors"] else Fore.WHITE),
-        ("Elapsed",         f"{elapsed:.1f}s",        Fore.WHITE),
+        ("Auth hits",       s["auth_hits"],           Fore.YELLOW if s["auth_hits"] else Fore.LIGHTWHITE_EX),
+        ("Errors",          s["errors"],              Fore.RED if s["errors"] else Fore.LIGHTWHITE_EX),
+        ("Elapsed",         f"{elapsed:.1f}s",        Fore.LIGHTWHITE_EX),
     ]
     for k, v, c in rows:
-        print(f"  {Fore.WHITE}{k:<16}{Style.RESET_ALL} : {c}{v}{Style.RESET_ALL}")
+        print(f"  {Fore.LIGHTWHITE_EX}{k:<16}{Style.RESET_ALL} : {c}{v}{Style.RESET_ALL}")
 
     if f.auth_hits:
         print()
-        hr("─", 60, Fore.YELLOW)
-        print(f"{Fore.YELLOW}{Style.BRIGHT}    AUTH ENDPOINTS ({len(f.auth_hits)}){Style.RESET_ALL}")
-        hr("─", 60, Fore.YELLOW)
+        print(f"{Fore.YELLOW}{'-' * 60}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}{Style.BRIGHT}  AUTH ENDPOINTS ({len(f.auth_hits)}){Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}{'-' * 60}{Style.RESET_ALL}")
         for h in sorted(f.auth_hits.values(), key=lambda x: -x.score):
             print(f"  {conf_color(h.score)}{conf_bar(h.score)}{Style.RESET_ALL} "
-                  f"{Fore.WHITE}[{h.method}]{Style.RESET_ALL} "
+                  f"{Fore.LIGHTWHITE_EX}[{h.method}]{Style.RESET_ALL} "
                   f"{Fore.CYAN}{h.url}{Style.RESET_ALL} "
-                  f"{Fore.WHITE}(score={h.score}){Style.RESET_ALL}")
-            print(f"       {Fore.WHITE}{'; '.join(h.reasons)}{Style.RESET_ALL}")
+                  f"{Fore.LIGHTWHITE_EX}(score={h.score}){Style.RESET_ALL}")
+            print(f"       {Fore.LIGHTWHITE_EX}{'; '.join(h.reasons)}{Style.RESET_ALL}")
             if h.variants:
                 print(f"       {Fore.BLUE}variants: {len(h.variants)}{Style.RESET_ALL}")
 
     real, suspect = f.classify_params()
     if real or suspect:
         print()
-        hr("─", 60, Fore.CYAN)
-        print(f"{Fore.CYAN}{Style.BRIGHT}   PARAMETERS ({len(real)} real, {len(suspect)} suspect){Style.RESET_ALL}")
-        hr("─", 60, Fore.CYAN)
+        print(f"{Fore.CYAN}{'-' * 60}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}{Style.BRIGHT}  PARAMETERS ({len(real)} real, {len(suspect)} suspect){Style.RESET_ALL}")
+        print(f"{Fore.CYAN}{'-' * 60}{Style.RESET_ALL}")
         if real:
             print(f"  {Fore.GREEN}real params:{Style.RESET_ALL}")
             for p in real:
@@ -996,10 +1026,8 @@ def print_summary(f, elapsed):
                 print(f"    {Fore.GREEN}{p}{Style.RESET_ALL} "
                       f"{Fore.BLUE}({len(urls)} loc){Style.RESET_ALL}"
                       f"{Fore.YELLOW}{auth_mark}{Style.RESET_ALL}")
-                for u in urls[:3]:
-                    print(f"      {Fore.WHITE}{u}{Style.RESET_ALL}")
-                if len(urls) > 3:
-                    print(f"      {Fore.WHITE}... dan {len(urls) - 3} lainnya{Style.RESET_ALL}")
+                for u in urls:
+                    print(f"      {Fore.LIGHTWHITE_EX}{u}{Style.RESET_ALL}")
         if suspect:
             print(f"  {Fore.YELLOW}? suspect (JS var / noise?):{Style.RESET_ALL}")
             for p in suspect[:20]:
@@ -1010,26 +1038,24 @@ def print_summary(f, elapsed):
 
     if f.forms:
         print()
-        hr("─", 60, Fore.GREEN)
-        print(f"{Fore.GREEN}{Style.BRIGHT}  📝 FORMS ({len(f.forms)} unique){Style.RESET_ALL}")
-        hr("─", 60, Fore.GREEN)
+        print(f"{Fore.GREEN}{'-' * 60}{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}{Style.BRIGHT}  FORMS ({len(f.forms)} unique){Style.RESET_ALL}")
+        print(f"{Fore.GREEN}{'-' * 60}{Style.RESET_ALL}")
         interesting = [fm for fm in f.forms if fm.has_password or fm.method == "post"]
         for fm in interesting[:25]:
             mc = Fore.RED if fm.method == "post" else Fore.GREEN
-            flag = " 🔑" if fm.has_password else ""
+            flag = " [PWD]" if fm.has_password else ""
             cnt = f" (seen {fm.count}x)" if fm.count > 1 else ""
             print(f"  {mc}[{fm.method.upper()}]{Style.RESET_ALL} "
-                  f"{Fore.WHITE}{fm.action}{Style.RESET_ALL}{flag}{cnt}")
+                  f"{Fore.LIGHTWHITE_EX}{fm.action}{Style.RESET_ALL}{flag}{cnt}")
             print(f"      params: {', '.join(fm.params) or '-'}")
         if len(interesting) > 25:
             print(f"  ... +{len(interesting) - 25} POST/password forms lagi")
 
-
-# ---------- Reports ----------
 def save_json(f, path):
     with open(path, "w") as fp:
         json.dump(f.to_dict(), fp, indent=2)
-    print(f"\n  {Fore.GREEN}✓{Style.RESET_ALL} JSON → {Fore.CYAN}{path}{Style.RESET_ALL}")
+    print(f"\n  {Fore.GREEN}{Style.RESET_ALL} JSON  {Fore.CYAN}{path}{Style.RESET_ALL}")
 
 
 def save_html(f, path):
@@ -1059,7 +1085,7 @@ def save_html(f, path):
                       f'<strong>{d["waf_detected"].upper()}</strong></p>')
 
     html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Recon — {d['base']}</title>
+<html><head><meta charset="utf-8"><title>Recon  {d['base']}</title>
 <style>
 body {{ font-family:-apple-system,system-ui,sans-serif; margin:20px;
         background:#0f172a; color:#e2e8f0; }}
@@ -1072,24 +1098,24 @@ th {{ background:#1e293b; color:#38bdf8; }}
 code {{ background:#1e293b; padding:2px 6px; border-radius:3px;
         color:#fbbf24; }}
 </style></head><body>
-<h1>Recon Report — {d['base']}</h1>
-<p><em>Scanned: {d['scanned_at']} · v{d['version']}</em></p>
+<h1>Recon Report  {d['base']}</h1>
+<p><em>Scanned: {d['scanned_at']}  v{d['version']}</em></p>
 {waf_banner}
 <h2>Stats</h2><table>{rows}</table>
 <h2>Auth Endpoints ({len(d['auth_hits'])})</h2>
 <table><tr><th>Score</th><th>URL</th><th>Method</th><th>Reasons</th></tr>
 {auth}</table>
-<h2>Parameters — Real ({len(real_params)})</h2>
+<h2>Parameters  Real ({len(real_params)})</h2>
 <table><tr><th>Param</th><th>Locations</th></tr>{params_html}</table>
-<h2>Parameters — Suspect ({len(suspect_params)})</h2>
+<h2>Parameters  Suspect ({len(suspect_params)})</h2>
 <table><tr><th>Param</th><th>Locations</th></tr>{suspect_html}</table>
-<h2>Forms — Unique ({len(d['forms'])})</h2>
+<h2>Forms  Unique ({len(d['forms'])})</h2>
 <table><tr><th>Method</th><th>Action</th><th>Params</th><th>Seen</th></tr>
 {forms}</table>
 </body></html>"""
     with open(path, "w") as fp:
         fp.write(html)
-    print(f"  {Fore.GREEN}✓{Style.RESET_ALL} HTML → {Fore.CYAN}{path}{Style.RESET_ALL}")
+    print(f"  {Fore.GREEN}{Style.RESET_ALL} HTML  {Fore.CYAN}{path}{Style.RESET_ALL}")
 
 
 # ---------- CLI ----------
@@ -1115,6 +1141,8 @@ contoh:
     ap.add_argument("--js-limit", type=int, default=30)
     ap.add_argument("--no-robots", dest="use_robots", action="store_false")
     ap.add_argument("--no-sitemap", dest="use_sitemap", action="store_false")
+    ap.add_argument("--hunt", action="store_true", help="Fuzz parameter tersembunyi (Arjun-style)")
+    ap.add_argument("-a", "--aggressive", action="store_true", help="Agresif: scan JS mendalam, parser Next.js, dan hunting parameter")
     ap.add_argument("--brute", action="store_true",
                     help="Brute-force common auth/admin paths")
     ap.add_argument("--brute-wordlist",
@@ -1126,6 +1154,17 @@ contoh:
 
     if not args.no_banner:
         print_banner()
+
+
+    if getattr(args, "aggressive", False):
+        print(f"\n{Fore.RED}{'='*60}{Style.RESET_ALL}")
+        print(f"{Fore.RED}{Style.BRIGHT}  AGGRESSIVE MODE ACTIVATED{Style.RESET_ALL}")
+        print(f"{Fore.RED}{'='*60}{Style.RESET_ALL}")
+        args.brute = True
+        args.scan_js = True
+        args.js_limit = 100
+        args.hunt = True
+        args.max_pages = max(args.max_pages, 300)
 
     headers = {}
     for h in args.header:
@@ -1158,11 +1197,28 @@ contoh:
                         if l.strip() and not l.strip().startswith("#")
                     ]
             except FileNotFoundError:
-                print(f"{Fore.RED}[!] Wordlist tidak ditemukan: "
+                print(f"{Fore.RED}[!] wordlist tidak ditemukan: "
                       f"{args.brute_wordlist}{Style.RESET_ALL}")
         brute_fetcher = Fetcher(headers=headers)
         brute_paths(brute_fetcher, f.base, f, brute_list,
                     threads=args.threads, delay=args.delay)
+
+
+    if getattr(args, "hunt", False):
+        print(f"\n{Fore.CYAN}[*]{Style.RESET_ALL} Memulai Parameter Discovery (Chunking + Anomaly)...")
+        hunt_fetcher = Fetcher(headers=headers)
+        # Ambil maksimal 20 URL unik yang bukan file statis
+        target_urls = [u for u in f.pages.keys() if not u.endswith((".js", ".css", ".png", ".jpg"))][:20]
+        hidden = param_discovery.hunt_hidden_params(hunt_fetcher, target_urls)
+        
+        if hidden:
+            print(f"\n{Fore.GREEN}[OK]{Style.RESET_ALL} Ditemukan parameter tersembunyi:")
+            for u, ps in hidden.items():
+                print(f"  {u} -> {', '.join(ps)}")
+                for p in ps:
+                    f.add_param(p, u)
+        else:
+            print(f"\n{Fore.YELLOW}[!]{Style.RESET_ALL} tidak ada parameter yang terdeteksi.")
 
     print_summary(f, elapsed)
     save_json(f, args.output)
