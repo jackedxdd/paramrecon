@@ -244,8 +244,10 @@ class Findings:
             return
         if name.lower() in NOISE_PARAMS:
             return
-        # JS minified pattern: single char, atau 1-2 char + 1 uppercase
-        if len(name) <= 2:
+        # FIX: Jangan buang param 2 huruf kayak 'id', 'q', 'v'. Cuma buang 1 huruf.
+        if len(name) == 1:
+            return
+        if len(name) == 2 and name.isupper():
             return
         if "cdn-cgi" in source_url or "__cf" in source_url:
             return
@@ -726,8 +728,8 @@ def scan_js_bundle(fetcher, url, findings, base_host, max_bytes=500_000):
             if is_auth_path(ep):
                 findings.add_auth(ep, "js-bundle-endpoint", 20,
                                   source="js-bundle")
-        for p in extract_js_url_params(text):
-            findings.add_param(p, url)
+        # FIX: Jangan pernah tarik parameter dari file JS (bikin sampah)
+        pass
     except Exception:
         pass
 
@@ -880,6 +882,9 @@ def crawl(start_url, max_pages=200, depth=4, threads=10, delay=0.0,
             findings.sitemap_urls.add(u)
             enqueue(u, 1)
 
+    # FIX: Paksa masukin parameter dari URL awal
+    for p in extract_query_params(start_url):
+        findings.add_param(p, start_url)
     enqueue(start_url, 0)
 
     js_bundles = set()
@@ -932,6 +937,13 @@ def crawl(start_url, max_pages=200, depth=4, threads=10, delay=0.0,
 
                 ctype = r.headers.get("Content-Type", "").lower()
                 print_status(r.status_code, url, done)
+                
+                # FIX: Kalau status 500, tetap ekstrak parameter dari URL-nya!
+                if r.status_code == 500:
+                    for p in extract_query_params(url):
+                        findings.add_param(p, url)
+                        if any(h in p.lower() for h in AUTH_PARAM_HINTS):
+                            findings.add_auth(url, f"auth-param-in-url:{p}", 15, source="url-500")
                 findings.pages[url] = {"status": r.status_code, "type": ctype[:60]}
                 findings.crawl_count += 1
 
@@ -1141,8 +1153,8 @@ contoh:
     ap.add_argument("--js-limit", type=int, default=30)
     ap.add_argument("--no-robots", dest="use_robots", action="store_false")
     ap.add_argument("--no-sitemap", dest="use_sitemap", action="store_false")
-    ap.add_argument("--hunt", action="store_true", help="Fuzz parameter tersembunyi (Arjun-style)")
     ap.add_argument("-a", "--aggressive", action="store_true", help="Agresif: scan JS mendalam, parser Next.js, dan hunting parameter")
+    ap.add_argument("--hunt", action="store_true", help="Active Parameter Discovery (Deep Fuzzing)")
     ap.add_argument("--brute", action="store_true",
                     help="Brute-force common auth/admin paths")
     ap.add_argument("--brute-wordlist",
@@ -1161,9 +1173,9 @@ contoh:
         print(f"{Fore.RED}{Style.BRIGHT}  AGGRESSIVE MODE ACTIVATED{Style.RESET_ALL}")
         print(f"{Fore.RED}{'='*60}{Style.RESET_ALL}")
         args.brute = True
+        args.hunt = True
         args.scan_js = True
         args.js_limit = 100
-        args.hunt = True
         args.max_pages = max(args.max_pages, 300)
 
     headers = {}
@@ -1204,21 +1216,15 @@ contoh:
                     threads=args.threads, delay=args.delay)
 
 
+
     if getattr(args, "hunt", False):
-        print(f"\n{Fore.CYAN}[*]{Style.RESET_ALL} Memulai Parameter Discovery (Chunking + Anomaly)...")
         hunt_fetcher = Fetcher(headers=headers)
-        # Ambil maksimal 20 URL unik yang bukan file statis
-        target_urls = [u for u in f.pages.keys() if not u.endswith((".js", ".css", ".png", ".jpg"))][:20]
-        hidden = param_discovery.hunt_hidden_params(hunt_fetcher, target_urls)
-        
+        target_urls = [u for u in f.pages.keys() if not is_static(u)]
+        hidden = param_discovery.hunt_hidden_params(hunt_fetcher, target_urls, threads=args.threads)
         if hidden:
-            print(f"\n{Fore.GREEN}[OK]{Style.RESET_ALL} Ditemukan parameter tersembunyi:")
             for u, ps in hidden.items():
-                print(f"  {u} -> {', '.join(ps)}")
                 for p in ps:
                     f.add_param(p, u)
-        else:
-            print(f"\n{Fore.YELLOW}[!]{Style.RESET_ALL} tidak ada parameter yang terdeteksi.")
 
     print_summary(f, elapsed)
     save_json(f, args.output)
